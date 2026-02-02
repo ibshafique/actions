@@ -97,7 +97,14 @@ runs:
             echo "| Vulnerability ID | Severity | Description |" >> "$GITHUB_STEP_SUMMARY"
             echo "|------------------|----------|-------------|" >> "$GITHUB_STEP_SUMMARY"
 
-            jq -r '[.runs[0].results[] | "| " + .ruleId + " | " + ((.properties["security-severity"] // "N/A") | tostring) + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"] | .[0:50] | .[]' "$SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
+            # Build a lookup map from rules array and join with results
+            jq -r '
+              (.runs[0].tool.driver.rules // []) as $rules |
+              ($rules | map({(.id): (.properties.severity // .defaultConfiguration.level // "Unknown")}) | add // {}) as $severityMap |
+              [.runs[0].results[] |
+                "| " + .ruleId + " | " + ($severityMap[.ruleId] // "Unknown") + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"
+              ] | .[0:50] | .[]
+            ' "$SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$VULNS" -gt 50 ]; then
               echo "" >> "$GITHUB_STEP_SUMMARY"
