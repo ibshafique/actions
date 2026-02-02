@@ -1,7 +1,7 @@
 {{- $scan := . -}}
 {{- if $scan.matches -}}
 
-## Grype Vulnerability Scan - {{ now | date "2006-01-02T15:04:05Z" }}
+## Grype Vulnerability Scan - {{ time.Now | date "2006-01-02T15:04:05Z" }}
 
 **Image:** `{{ $scan.source.target.userInput | default $scan.source.target.repoDigests | default $scan.source.target }}`
 
@@ -26,7 +26,7 @@
 {{- end }}
 {{- else if $scan.source }}
 
-## Grype Vulnerability Scan - {{ now | date "2006-01-02T15:04:05Z" }}
+## Grype Vulnerability Scan - {{ time.Now | date "2006-01-02T15:04:05Z" }}
 
 **Image:** `{{ $scan.source.target.userInput | default $scan.source.target }}`
 
