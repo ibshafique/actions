@@ -98,9 +98,18 @@ runs:
             echo "|------------------|----------|-------------|" >> "$GITHUB_STEP_SUMMARY"
 
             # Build a lookup map from rules array and join with results
+            # Grype stores CVSS score in security-severity, map to severity level
             jq -r '
+              def cvss_to_severity:
+                if . == null then "Unknown"
+                elif (. | tonumber) >= 9.0 then "Critical"
+                elif (. | tonumber) >= 7.0 then "High"
+                elif (. | tonumber) >= 4.0 then "Medium"
+                elif (. | tonumber) >= 0.1 then "Low"
+                else "Unknown"
+                end;
               (.runs[0].tool.driver.rules // []) as $rules |
-              ($rules | map({(.id): (.properties.severity // .defaultConfiguration.level // "Unknown")}) | add // {}) as $severityMap |
+              ($rules | map({(.id): ((.properties["security-severity"] // null) | cvss_to_severity)}) | add // {}) as $severityMap |
               [.runs[0].results[] |
                 "| " + .ruleId + " | " + ($severityMap[.ruleId] // "Unknown") + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"
               ] | .[0:50] | .[]
