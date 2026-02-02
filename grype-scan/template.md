@@ -1,37 +1,27 @@
 {{- $scan := . -}}
-{{- if $scan.matches -}}
+{{- if $scan.source -}}
 
-## Grype Vulnerability Scan - {{ time.Now | date "2006-01-02T15:04:05Z" }}
+## Grype Vulnerability Scan - {{ (time.Now).Format "2006-01-02T15:04:05Z" }}
 
-**Image:** `{{ $scan.source.target.userInput | default $scan.source.target.repoDigests | default $scan.source.target }}`
+**Image:** `{{ $scan.source.target.userInput | default $scan.source.target }}`
 
-{{- if (eq (len $scan.matches) 0) }}
-
-### ✅ No Vulnerabilities Found
-
-{{- else }}
+{{- if $scan.matches }}
 
 ### 🔍 Vulnerabilities Found: {{ len $scan.matches }}
 
 | Package | Vulnerability ID | Severity | Installed Version | Fixed Version |
 |---------|------------------|----------|-------------------|---------------|
 {{- range $scan.matches }}
-{{- $fixVersion := "N/A" }}
-{{- if .vulnerability.fix.versions }}
-{{- $fixVersion = index .vulnerability.fix.versions 0 }}
-{{- end }}
-| {{ .artifact.name }} | {{ .vulnerability.id }} | {{ .vulnerability.severity }} | {{ .artifact.version }} | {{ $fixVersion }} |
+{{- $fix := "N/A" }}
+{{- with .vulnerability.fix }}{{- with .versions }}{{- $fix = index . 0 }}{{- end }}{{- end }}
+| {{ .artifact.name }} | {{ .vulnerability.id }} | {{ .vulnerability.severity }} | {{ .artifact.version }} | {{ $fix }} |
 {{- end }}
 
-{{- end }}
-{{- else if $scan.source }}
-
-## Grype Vulnerability Scan - {{ time.Now | date "2006-01-02T15:04:05Z" }}
-
-**Image:** `{{ $scan.source.target.userInput | default $scan.source.target }}`
+{{- else }}
 
 ### ✅ No Vulnerabilities Found
 
+{{- end }}
 {{- else }}
 
 ## Grype Scan Returned Empty Report
