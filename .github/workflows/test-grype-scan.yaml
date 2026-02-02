@@ -18,10 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          # - memcached:alpine3.23
+          - memcached:alpine3.23
           - alpine:latest
-          # - python:3.12-slim
-          # - node:20-alpine
+          - python:3.12-slim
+          - node:20-alpine
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

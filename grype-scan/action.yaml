@@ -109,11 +109,20 @@ runs:
           echo "### ⚠️ Scan results not available" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    - name: Sanitize image name for artifact
+      if: always()
+      id: sanitize
+      shell: bash
+      run: |
+        IMAGE_NAME="${{ inputs.image }}"
+        SAFE_NAME=$(echo "$IMAGE_NAME" | tr ':/' '-')
+        echo "artifact-suffix=$SAFE_NAME" >> "$GITHUB_OUTPUT"
+
     - name: Upload scan results as artifact
       if: always()
       uses: actions/upload-artifact@v6
       with:
-        name: grype-scan-results-${{ github.run_id }}-${{ github.run_attempt }}
+        name: grype-scan-${{ steps.sanitize.outputs.artifact-suffix }}-${{ github.run_id }}
         path: |
           ${{ steps.grype-scan.outputs.sarif }}
           ${{ steps.grype-scan.outputs.json }}
