@@ -7,6 +7,10 @@ on:
       - 'grype-scan/**'
       - '.github/workflows/test-grype-scan.yaml'
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   scan-public-images:
     runs-on: ubuntu-latest
