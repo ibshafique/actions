@@ -18,8 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - memcached:alpine3.23
-          # - alpine:latest
+          # - memcached:alpine3.23
+          - alpine:latest
           # - python:3.12-slim
           # - node:20-alpine
     steps:
