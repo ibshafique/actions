@@ -77,9 +77,8 @@ runs:
             echo "| Package | Vulnerability ID | Severity | Installed Version | Fixed Version |" >> "$GITHUB_STEP_SUMMARY"
             echo "|---------|------------------|----------|-------------------|---------------|" >> "$GITHUB_STEP_SUMMARY"
 
-            jq -r '.matches[] |
-              "| \(.artifact.name) | \(.vulnerability.id) | \(.vulnerability.severity) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "N/A") |"' \
-              "$JSON_FILE" | head -n 50 >> "$GITHUB_STEP_SUMMARY"
+            jq -r '[.matches[] | "| \(.artifact.name) | \(.vulnerability.id) | \(.vulnerability.severity) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "N/A") |"] | .[0:50] | .[]' \
+              "$JSON_FILE" >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$VULNS" -gt 50 ]; then
               echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -98,7 +97,7 @@ runs:
             echo "| Vulnerability ID | Severity | Description |" >> "$GITHUB_STEP_SUMMARY"
             echo "|------------------|----------|-------------|" >> "$GITHUB_STEP_SUMMARY"
 
-            jq -r '.runs[0].results[] | "| " + .ruleId + " | " + ((.properties["security-severity"] // "N/A") | tostring) + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"' "$SARIF_FILE" | head -n 50 >> "$GITHUB_STEP_SUMMARY"
+            jq -r '[.runs[0].results[] | "| " + .ruleId + " | " + ((.properties["security-severity"] // "N/A") | tostring) + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"] | .[0:50] | .[]' "$SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$VULNS" -gt 50 ]; then
               echo "" >> "$GITHUB_STEP_SUMMARY"
