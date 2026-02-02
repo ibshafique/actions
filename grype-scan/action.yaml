@@ -52,82 +52,37 @@ runs:
       with:
         sarif_file: ${{ steps.grype-scan.outputs.sarif }}
 
+    - name: Generate JSON for summary
+      id: grype-json
+      if: always()
+      uses: anchore/scan-action@v4
+      with:
+        image: ${{ inputs.image }}
+        severity-cutoff: ${{ inputs.severity-cutoff }}
+        fail-build: 'false'
+        output-format: json
+
+    - name: Install gomplate
+      if: always()
+      shell: bash
+      run: |
+        curl -sSL https://github.com/hairyhenderson/gomplate/releases/download/v4.2.0/gomplate_linux-amd64 -o /usr/local/bin/gomplate
+        chmod +x /usr/local/bin/gomplate
+
     - name: Generate scan summary
       if: always()
       shell: bash
       run: |
-        echo "## Grype Vulnerability Scan Results - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_STEP_SUMMARY"
-        echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "**Image:** \`${{ inputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
-        echo "**Severity Cutoff:** ${{ inputs.severity-cutoff }}" >> "$GITHUB_STEP_SUMMARY"
-        echo "" >> "$GITHUB_STEP_SUMMARY"
-
-        JSON_FILE="${{ steps.grype-scan.outputs.json }}"
-        SARIF_FILE="${{ steps.grype-scan.outputs.sarif }}"
+        JSON_FILE="${{ steps.grype-json.outputs.json }}"
+        TEMPLATE_FILE="${{ github.action_path }}/template.md"
 
         if [ -f "$JSON_FILE" ]; then
-          # Parse JSON format
-          VULNS=$(jq -r '.matches // [] | length' "$JSON_FILE")
-
-          if [ "$VULNS" -eq 0 ]; then
-            echo "### ✅ No Vulnerabilities Found" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### 🔍 Vulnerabilities Found: $VULNS" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Package | Vulnerability ID | Severity | Installed Version | Fixed Version |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|---------|------------------|----------|-------------------|---------------|" >> "$GITHUB_STEP_SUMMARY"
-
-            jq -r '[.matches[] | "| \(.artifact.name) | \(.vulnerability.id) | \(.vulnerability.severity) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "N/A") |"] | .[0:50] | .[]' \
-              "$JSON_FILE" >> "$GITHUB_STEP_SUMMARY"
-
-            if [ "$VULNS" -gt 50 ]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "_Showing first 50 vulnerabilities. See artifact for full results._" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          fi
-        elif [ -f "$SARIF_FILE" ]; then
-          # Parse SARIF format
-          VULNS=$(jq -r '.runs[0].results // [] | length' "$SARIF_FILE")
-
-          if [ "$VULNS" -eq 0 ]; then
-            echo "### ✅ No Vulnerabilities Found" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### 🔍 Vulnerabilities Found: $VULNS" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Package | Vulnerability ID | Severity | Installed Version | Fixed Version |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|---------|------------------|----------|-------------------|---------------|" >> "$GITHUB_STEP_SUMMARY"
-
-            # Build a lookup map from rules array and join with results
-            # Grype stores CVSS score in security-severity, map to severity level
-            # Parse message.text for package info (format varies by Grype version)
-            jq -r '
-              def cvss_to_severity:
-                if . == null then "Unknown"
-                elif (. | tonumber) >= 9.0 then "Critical"
-                elif (. | tonumber) >= 7.0 then "High"
-                elif (. | tonumber) >= 4.0 then "Medium"
-                elif (. | tonumber) >= 0.1 then "Low"
-                else "Unknown"
-                end;
-              (.runs[0].tool.driver.rules // []) as $rules |
-              ($rules | map({(.id): ((.properties["security-severity"] // null) | cvss_to_severity)}) | add // {}) as $severityMap |
-              [.runs[0].results[] |
-                .message.text as $msg |
-                (($msg | capture("(?<pkg>[^\\s]+)\\s+@\\s*(?<ver>[^\\s]+)") | "\(.pkg)|\(.ver)") // ($msg | split(" ")[0:2] | join("|"))) as $pkgver |
-                ($pkgver | split("|")[0] // "N/A") as $pkg |
-                ($pkgver | split("|")[1] // "N/A") as $version |
-                (($msg | capture("[Ff]ix(ed)?\\s*(in|version)?:?\\s*(?<fix>[0-9][^\\s,\\)]+)") | .fix) // "N/A") as $fix |
-                "| " + $pkg + " | " + .ruleId + " | " + ($severityMap[.ruleId] // "Unknown") + " | " + $version + " | " + $fix + " |"
-              ] | .[0:50] | .[]
-            ' "$SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
-
-            if [ "$VULNS" -gt 50 ]; then
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "_Showing first 50 vulnerabilities. See artifact for full results._" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          fi
+          gomplate -c ".=$JSON_FILE" -f "$TEMPLATE_FILE" >> "$GITHUB_STEP_SUMMARY"
         else
-          echo "### ⚠️ Scan results not available" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ⚠️ Scan results not available" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Image:** \`${{ inputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Severity Cutoff:** ${{ inputs.severity-cutoff }}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
     - name: Sanitize image name for artifact
