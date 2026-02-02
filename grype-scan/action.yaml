@@ -94,11 +94,12 @@ runs:
           else
             echo "### 🔍 Vulnerabilities Found: $VULNS" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Vulnerability ID | Severity | Description |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|------------------|----------|-------------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Package | Vulnerability ID | Severity | Installed Version | Fixed Version |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---------|------------------|----------|-------------------|---------------|" >> "$GITHUB_STEP_SUMMARY"
 
             # Build a lookup map from rules array and join with results
             # Grype stores CVSS score in security-severity, map to severity level
+            # Parse message.text for package info (format varies by Grype version)
             jq -r '
               def cvss_to_severity:
                 if . == null then "Unknown"
@@ -111,7 +112,12 @@ runs:
               (.runs[0].tool.driver.rules // []) as $rules |
               ($rules | map({(.id): ((.properties["security-severity"] // null) | cvss_to_severity)}) | add // {}) as $severityMap |
               [.runs[0].results[] |
-                "| " + .ruleId + " | " + ($severityMap[.ruleId] // "Unknown") + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"
+                .message.text as $msg |
+                (($msg | capture("(?<pkg>[^\\s]+)\\s+@\\s*(?<ver>[^\\s]+)") | "\(.pkg)|\(.ver)") // ($msg | split(" ")[0:2] | join("|"))) as $pkgver |
+                ($pkgver | split("|")[0] // "N/A") as $pkg |
+                ($pkgver | split("|")[1] // "N/A") as $version |
+                (($msg | capture("[Ff]ix(ed)?\\s*(in|version)?:?\\s*(?<fix>[0-9][^\\s,\\)]+)") | .fix) // "N/A") as $fix |
+                "| " + $pkg + " | " + .ruleId + " | " + ($severityMap[.ruleId] // "Unknown") + " | " + $version + " | " + $fix + " |"
               ] | .[0:50] | .[]
             ' "$SARIF_FILE" >> "$GITHUB_STEP_SUMMARY"
 
