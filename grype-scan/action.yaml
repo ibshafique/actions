@@ -39,7 +39,7 @@ runs:
 
     - name: Run Grype scan
       id: grype-scan
-      uses: anchore/scan-action@3343887d815d7b07465f8fdafa7314bd1c5111e1  # v4.0.0
+      uses: anchore/scan-action@v4
       with:
         image: ${{ inputs.image }}
         severity-cutoff: ${{ inputs.severity-cutoff }}
