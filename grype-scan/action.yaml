@@ -1,0 +1,99 @@
+name: Scan OCI Image using Grype
+description: Scan OCI image for security vulnerabilities using Grype
+
+inputs:
+  image:
+    description: 'The image to scan'
+    required: true
+  severity-cutoff:
+    description: 'Severity cutoff level (negligible, low, medium, high, critical)'
+    required: false
+    default: 'critical'
+  fail-build:
+    description: 'Fail build on vulnerabilities'
+    required: false
+    default: 'true'
+  github-username:
+    description: 'The GitHub username to access container registry'
+    required: false
+    default: ''
+  github-pat:
+    description: 'The GitHub token to access container registry'
+    required: false
+    default: ''
+  output-format:
+    description: 'Output format (sarif, json, table, cyclonedx)'
+    required: false
+    default: 'sarif'
+
+runs:
+  using: composite
+  steps:
+    - name: Login to GitHub Container Registry
+      if: ${{ inputs.github-pat != '' }}
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ inputs.github-username }}
+        password: ${{ inputs.github-pat }}
+
+    - name: Run Grype scan
+      id: grype-scan
+      uses: anchore/scan-action@3343887d815d7b07465f8fdafa7314bd1c5111e1  # v4.0.0
+      with:
+        image: ${{ inputs.image }}
+        severity-cutoff: ${{ inputs.severity-cutoff }}
+        fail-build: ${{ inputs.fail-build }}
+        output-format: ${{ inputs.output-format }}
+
+    - name: Upload SARIF to GitHub Security
+      if: ${{ inputs.output-format == 'sarif' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+
+    - name: Generate scan summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## Grype Vulnerability Scan Results - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "**Image:** \`${{ inputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "**Severity Cutoff:** ${{ inputs.severity-cutoff }}" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+
+        if [ -f "${{ steps.grype-scan.outputs.json }}" ]; then
+          # Parse JSON and create summary table
+          VULNS=$(jq -r '.matches // [] | length' "${{ steps.grype-scan.outputs.json }}")
+
+          if [ "$VULNS" -eq 0 ]; then
+            echo "### ✅ No Vulnerabilities Found" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 🔍 Vulnerabilities Found: $VULNS" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Package | Vulnerability ID | Severity | Installed Version | Fixed Version |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|---------|------------------|----------|-------------------|---------------|" >> "$GITHUB_STEP_SUMMARY"
+
+            jq -r '.matches[] |
+              "\(.artifact.name) | \(.vulnerability.id) | \(.vulnerability.severity) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "N/A")"' \
+              "${{ steps.grype-scan.outputs.json }}" | \
+              head -n 50 >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$VULNS" -gt 50 ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "_Showing first 50 vulnerabilities. See artifact for full results._" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+        else
+          echo "### ⚠️ Scan results not available" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload scan results as artifact
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: grype-scan-results-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.grype-scan.outputs.sarif }}
+          ${{ steps.grype-scan.outputs.json }}
+        retention-days: 90
