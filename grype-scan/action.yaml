@@ -98,10 +98,7 @@ runs:
             echo "| Vulnerability ID | Severity | Description |" >> "$GITHUB_STEP_SUMMARY"
             echo "|------------------|----------|-------------|" >> "$GITHUB_STEP_SUMMARY"
 
-            jq -r '
-              .runs[0].results[] |
-              "| \(.ruleId) | \(.properties.security-severity // "N/A") | \(.message.text | split("\n")[0] | .[0:80]) |"
-            ' "$SARIF_FILE" | head -n 50 >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.runs[0].results[] | "| " + .ruleId + " | " + ((.properties["security-severity"] // "N/A") | tostring) + " | " + (.message.text | split("\n")[0] | .[0:80]) + " |"' "$SARIF_FILE" | head -n 50 >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$VULNS" -gt 50 ]; then
               echo "" >> "$GITHUB_STEP_SUMMARY"
