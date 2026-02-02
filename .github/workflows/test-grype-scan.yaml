@@ -1,0 +1,31 @@
+name: Test Grype Scan with Public Images
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'grype-scan/**'
+      - '.github/workflows/test-grype-scan.yaml'
+
+jobs:
+  scan-public-images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - nginx:latest
+          - alpine:latest
+          - python:3.12-slim
+          - node:20-alpine
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan ${{ matrix.image }}
+        uses: ./grype-scan
+        with:
+          image: ${{ matrix.image }}
+          severity-cutoff: medium
+          fail-build: 'false'
+          output-format: sarif
