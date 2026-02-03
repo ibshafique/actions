@@ -30,6 +30,6 @@ jobs:
         uses: ./grype-scan
         with:
           image: ${{ matrix.image }}
-          severity-cutoff: medium
-          fail-build: 'false'
+          severity-cutoff: critical
+          fail-build: 'true'
           output-format: sarif
