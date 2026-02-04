@@ -6,22 +6,26 @@
 {{- $totalVulns := 0 -}}
 {{- $totalMisconfigs := 0 -}}
 {{- range $scan.Results -}}
-{{- if .Vulnerabilities }}{{- $totalVulns = add $totalVulns (len .Vulnerabilities) }}{{- end -}}
-{{- if .Misconfigurations }}{{- $totalMisconfigs = add $totalMisconfigs (len .Misconfigurations) }}{{- end -}}
+{{- $vulns := index . "Vulnerabilities" | default coll.Slice -}}
+{{- $misconfigs := index . "Misconfigurations" | default coll.Slice -}}
+{{- $totalVulns = add $totalVulns (len $vulns) -}}
+{{- $totalMisconfigs = add $totalMisconfigs (len $misconfigs) -}}
 {{- end }}
 
 {{- range $scan.Results }}
+{{- $vulns := index . "Vulnerabilities" | default coll.Slice -}}
+{{- $misconfigs := index . "Misconfigurations" | default coll.Slice }}
 
 ### {{ .Target }} ({{ .Type }})
 
-{{- if .Vulnerabilities }}
+{{- if $vulns }}
 
-#### Vulnerabilities Found: {{ len .Vulnerabilities }}
+#### Vulnerabilities Found: {{ len $vulns }}
 
 | Package | Vulnerability ID | Severity | Installed Version | Fixed Version |
 |---------|------------------|----------|-------------------|---------------|
-{{- range .Vulnerabilities }}
-| {{ .PkgName }} | {{ .VulnerabilityID }} | {{ .Severity }} | {{ .InstalledVersion }} | {{ .FixedVersion | default "N/A" }} |
+{{- range $vulns }}
+| {{ .PkgName }} | {{ .VulnerabilityID }} | {{ .Severity }} | {{ .InstalledVersion }} | {{ index . "FixedVersion" | default "N/A" }} |
 {{- end }}
 
 {{- else }}
@@ -30,13 +34,13 @@
 
 {{- end }}
 
-{{- if .Misconfigurations }}
+{{- if $misconfigs }}
 
-#### Misconfigurations Found: {{ len .Misconfigurations }}
+#### Misconfigurations Found: {{ len $misconfigs }}
 
 | Type | ID | Title | Severity | Message |
 |------|-----|-------|----------|---------|
-{{- range .Misconfigurations }}
+{{- range $misconfigs }}
 | {{ .Type }} | {{ .ID }} | {{ .Title }} | {{ .Severity }} | {{ .Message }} |
 {{- end }}
 
