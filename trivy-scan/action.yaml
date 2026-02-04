@@ -1,0 +1,120 @@
+name: Scan OCI Image using Trivy
+description: Scan OCI image for security vulnerabilities using Trivy
+
+inputs:
+  image:
+    description: 'The image to scan'
+    required: true
+  severity:
+    description: 'Severity levels to scan for (UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL)'
+    required: false
+    default: 'CRITICAL,HIGH'
+  exit-code:
+    description: 'Exit code when vulnerabilities are found (0 = no fail, 1 = fail)'
+    required: false
+    default: '1'
+  ignore-unfixed:
+    description: 'Ignore unpatched/unfixed vulnerabilities'
+    required: false
+    default: 'false'
+  vuln-type:
+    description: 'Vulnerability types to scan (os,library)'
+    required: false
+    default: 'os,library'
+  scanners:
+    description: 'Scanners to enable (vuln,secret,misconfig)'
+    required: false
+    default: 'vuln,secret'
+  github-username:
+    description: 'The GitHub username to access container registry'
+    required: false
+    default: ''
+  github-pat:
+    description: 'The GitHub token to access container registry'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Login to GitHub Container Registry
+      if: ${{ inputs.github-pat != '' }}
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ inputs.github-username }}
+        password: ${{ inputs.github-pat }}
+
+    - name: Run Trivy scan (SARIF)
+      id: trivy-sarif
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ inputs.image }}
+        severity: ${{ inputs.severity }}
+        exit-code: ${{ inputs.exit-code }}
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        vuln-type: ${{ inputs.vuln-type }}
+        scanners: ${{ inputs.scanners }}
+        format: sarif
+        output: trivy-results.sarif
+
+    - name: Upload SARIF to GitHub Security
+      if: always()
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: trivy-results.sarif
+
+    - name: Run Trivy scan (JSON for summary)
+      id: trivy-json
+      if: always()
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ inputs.image }}
+        severity: ${{ inputs.severity }}
+        exit-code: '0'
+        ignore-unfixed: ${{ inputs.ignore-unfixed }}
+        vuln-type: ${{ inputs.vuln-type }}
+        scanners: ${{ inputs.scanners }}
+        format: json
+        output: trivy-results.json
+
+    - name: Install gomplate
+      if: always()
+      shell: bash
+      run: |
+        curl -sSL https://github.com/hairyhenderson/gomplate/releases/download/v4.2.0/gomplate_linux-amd64 -o /usr/local/bin/gomplate
+        chmod +x /usr/local/bin/gomplate
+
+    - name: Generate scan summary
+      if: always()
+      shell: bash
+      run: |
+        JSON_FILE="trivy-results.json"
+        TEMPLATE_FILE="${{ github.action_path }}/template.md"
+
+        if [ -f "$JSON_FILE" ]; then
+          gomplate -c ".=$JSON_FILE" -f "$TEMPLATE_FILE" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "## Trivy Scan Results not available" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Image:** \`${{ inputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Sanitize image name for artifact
+      if: always()
+      id: sanitize
+      shell: bash
+      run: |
+        IMAGE_NAME="${{ inputs.image }}"
+        SAFE_NAME=$(echo "$IMAGE_NAME" | tr ':/' '-')
+        echo "artifact-suffix=$SAFE_NAME" >> "$GITHUB_OUTPUT"
+
+    - name: Upload scan results as artifact
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: trivy-scan-${{ steps.sanitize.outputs.artifact-suffix }}-${{ github.run_id }}
+        path: |
+          trivy-results.sarif
+          trivy-results.json
+        retention-days: 90
