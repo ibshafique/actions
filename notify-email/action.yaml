@@ -1,0 +1,217 @@
+name: Send Scan Notification Email
+description: Send email notification with vulnerability scan results
+
+inputs:
+  to:
+    description: 'Recipient email address(es), comma-separated'
+    required: true
+  from:
+    description: 'Sender email address'
+    required: true
+  subject:
+    description: 'Email subject (optional, auto-generated if not provided)'
+    required: false
+    default: ''
+  scan-type:
+    description: 'Type of scan (grype, trivy)'
+    required: true
+  scan-status:
+    description: 'Scan status (success, failure)'
+    required: true
+  image:
+    description: 'The image that was scanned'
+    required: true
+  report-file:
+    description: 'Path to the JSON report file'
+    required: true
+  smtp-server:
+    description: 'SMTP server address'
+    required: true
+  smtp-port:
+    description: 'SMTP server port'
+    required: false
+    default: '587'
+  smtp-username:
+    description: 'SMTP username'
+    required: true
+  smtp-password:
+    description: 'SMTP password'
+    required: true
+  smtp-secure:
+    description: 'Use TLS (true/false)'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Generate email content
+      id: generate-email
+      shell: bash
+      run: |
+        SCAN_TYPE="${{ inputs.scan-type }}"
+        SCAN_STATUS="${{ inputs.scan-status }}"
+        IMAGE="${{ inputs.image }}"
+        REPORT_FILE="${{ inputs.report-file }}"
+        TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+        # Set status emoji and color
+        if [ "$SCAN_STATUS" = "success" ]; then
+          STATUS_EMOJI="✅"
+          STATUS_COLOR="#28a745"
+          STATUS_TEXT="PASSED"
+        else
+          STATUS_EMOJI="❌"
+          STATUS_COLOR="#dc3545"
+          STATUS_TEXT="FAILED"
+        fi
+
+        # Generate subject if not provided
+        SUBJECT="${{ inputs.subject }}"
+        if [ -z "$SUBJECT" ]; then
+          SUBJECT="[${SCAN_TYPE^^}] Scan ${STATUS_TEXT} - ${IMAGE}"
+        fi
+        echo "subject=${SUBJECT}" >> "$GITHUB_OUTPUT"
+
+        # Start HTML email
+        cat > email_body.html << 'HTMLEOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+            .content { background: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px; }
+            .status-badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; }
+            .status-success { background: #d4edda; color: #155724; }
+            .status-failure { background: #f8d7da; color: #721c24; }
+            .info-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+            .info-table td { padding: 8px 12px; border-bottom: 1px solid #dee2e6; }
+            .info-table td:first-child { font-weight: bold; width: 150px; background: #e9ecef; }
+            .vuln-table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px; }
+            .vuln-table th, .vuln-table td { padding: 10px; text-align: left; border: 1px solid #dee2e6; }
+            .vuln-table th { background: #343a40; color: white; }
+            .vuln-table tr:nth-child(even) { background: #f8f9fa; }
+            .severity-critical { background: #721c24; color: white; padding: 2px 8px; border-radius: 4px; }
+            .severity-high { background: #856404; color: white; padding: 2px 8px; border-radius: 4px; }
+            .severity-medium { background: #0c5460; color: white; padding: 2px 8px; border-radius: 4px; }
+            .severity-low { background: #155724; color: white; padding: 2px 8px; border-radius: 4px; }
+            .summary-box { background: white; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin: 15px 0; }
+            .footer { margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }
+          </style>
+        </head>
+        <body>
+        HTMLEOF
+
+        # Add header
+        cat >> email_body.html << EOF
+          <div class="header">
+            <h1 style="margin:0;">${STATUS_EMOJI} ${SCAN_TYPE^^} Vulnerability Scan</h1>
+            <p style="margin:10px 0 0 0;opacity:0.9;">Automated security scan report</p>
+          </div>
+          <div class="content">
+            <span class="status-badge status-${SCAN_STATUS}">${STATUS_TEXT}</span>
+
+            <table class="info-table">
+              <tr><td>Image</td><td><code>${IMAGE}</code></td></tr>
+              <tr><td>Scanner</td><td>${SCAN_TYPE^}</td></tr>
+              <tr><td>Scan Time</td><td>${TIMESTAMP}</td></tr>
+              <tr><td>Repository</td><td>${GITHUB_REPOSITORY}</td></tr>
+              <tr><td>Workflow</td><td>${GITHUB_WORKFLOW}</td></tr>
+              <tr><td>Run ID</td><td><a href="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}">#${GITHUB_RUN_ID}</a></td></tr>
+            </table>
+        EOF
+
+        # Parse vulnerabilities based on scan type
+        if [ -f "$REPORT_FILE" ]; then
+          if [ "$SCAN_TYPE" = "grype" ]; then
+            # Parse Grype JSON
+            VULN_COUNT=$(jq -r '.matches // [] | length' "$REPORT_FILE")
+            CRITICAL=$(jq -r '[.matches[] | select(.vulnerability.severity == "Critical")] | length' "$REPORT_FILE")
+            HIGH=$(jq -r '[.matches[] | select(.vulnerability.severity == "High")] | length' "$REPORT_FILE")
+            MEDIUM=$(jq -r '[.matches[] | select(.vulnerability.severity == "Medium")] | length' "$REPORT_FILE")
+            LOW=$(jq -r '[.matches[] | select(.vulnerability.severity == "Low")] | length' "$REPORT_FILE")
+
+            # Generate vulnerability table
+            VULN_ROWS=$(jq -r '.matches[:20][] | "<tr><td>\(.artifact.name)</td><td>\(.vulnerability.id)</td><td><span class=\"severity-\(.vulnerability.severity | ascii_downcase)\">\(.vulnerability.severity)</span></td><td>\(.artifact.version)</td><td>\(.vulnerability.fix.versions[0] // "N/A")</td></tr>"' "$REPORT_FILE" 2>/dev/null || echo "")
+
+          elif [ "$SCAN_TYPE" = "trivy" ]; then
+            # Parse Trivy JSON
+            VULN_COUNT=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[]] | length' "$REPORT_FILE")
+            CRITICAL=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[] | select(.Severity == "CRITICAL")] | length' "$REPORT_FILE")
+            HIGH=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[] | select(.Severity == "HIGH")] | length' "$REPORT_FILE")
+            MEDIUM=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[] | select(.Severity == "MEDIUM")] | length' "$REPORT_FILE")
+            LOW=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[] | select(.Severity == "LOW")] | length' "$REPORT_FILE")
+
+            # Generate vulnerability table
+            VULN_ROWS=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[]][:20][] | "<tr><td>\(.PkgName)</td><td>\(.VulnerabilityID)</td><td><span class=\"severity-\(.Severity | ascii_downcase)\">\(.Severity)</span></td><td>\(.InstalledVersion)</td><td>\(.FixedVersion // "N/A")</td></tr>"' "$REPORT_FILE" 2>/dev/null || echo "")
+          fi
+
+          # Add summary
+          cat >> email_body.html << EOF
+            <div class="summary-box">
+              <h3 style="margin-top:0;">Vulnerability Summary</h3>
+              <p><strong>Total Vulnerabilities:</strong> ${VULN_COUNT:-0}</p>
+              <p>
+                <span class="severity-critical">Critical: ${CRITICAL:-0}</span>
+                <span class="severity-high">High: ${HIGH:-0}</span>
+                <span class="severity-medium">Medium: ${MEDIUM:-0}</span>
+                <span class="severity-low">Low: ${LOW:-0}</span>
+              </p>
+            </div>
+        EOF
+
+          # Add vulnerability table if there are vulnerabilities
+          if [ "${VULN_COUNT:-0}" -gt 0 ] && [ -n "$VULN_ROWS" ]; then
+            cat >> email_body.html << EOF
+            <h3>Vulnerability Details (showing up to 20)</h3>
+            <table class="vuln-table">
+              <thead>
+                <tr>
+                  <th>Package</th>
+                  <th>Vulnerability ID</th>
+                  <th>Severity</th>
+                  <th>Installed</th>
+                  <th>Fixed In</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${VULN_ROWS}
+              </tbody>
+            </table>
+        EOF
+            if [ "${VULN_COUNT:-0}" -gt 20 ]; then
+              echo "<p><em>Showing first 20 of ${VULN_COUNT} vulnerabilities. See full report in GitHub Actions artifacts.</em></p>" >> email_body.html
+            fi
+          fi
+        else
+          echo "<p>⚠️ Report file not found: ${REPORT_FILE}</p>" >> email_body.html
+        fi
+
+        # Add footer
+        cat >> email_body.html << EOF
+            <div class="footer">
+              <p>This is an automated message from GitHub Actions.</p>
+              <p>View the full results: <a href="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}">${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}</a></p>
+            </div>
+          </div>
+        </body>
+        </html>
+        EOF
+
+        echo "Email content generated successfully"
+
+    - name: Send email
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ inputs.smtp-server }}
+        server_port: ${{ inputs.smtp-port }}
+        username: ${{ inputs.smtp-username }}
+        password: ${{ inputs.smtp-password }}
+        secure: ${{ inputs.smtp-secure }}
+        subject: ${{ steps.generate-email.outputs.subject }}
+        to: ${{ inputs.to }}
+        from: ${{ inputs.from }}
+        html_body: file://email_body.html
+        ignore_cert: false
+        priority: normal

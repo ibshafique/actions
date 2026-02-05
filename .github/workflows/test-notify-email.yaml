@@ -1,0 +1,94 @@
+name: Test Scan with Email Notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image to scan'
+        required: true
+        default: 'alpine:latest'
+      scanner:
+        description: 'Scanner to use'
+        required: true
+        default: 'trivy'
+        type: choice
+        options:
+          - trivy
+          - grype
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Run Trivy scan
+      - name: Run Trivy Scan
+        id: trivy
+        if: ${{ inputs.scanner == 'trivy' }}
+        uses: ./trivy-scan
+        continue-on-error: true
+        with:
+          image: ${{ inputs.image }}
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      # Run Grype scan
+      - name: Run Grype Scan
+        id: grype
+        if: ${{ inputs.scanner == 'grype' }}
+        uses: ./grype-scan
+        continue-on-error: true
+        with:
+          image: ${{ inputs.image }}
+          severity-cutoff: high
+          fail-build: 'true'
+          output-format: sarif
+
+      # Determine scan status
+      - name: Determine scan status
+        id: status
+        shell: bash
+        run: |
+          if [ "${{ inputs.scanner }}" = "trivy" ]; then
+            if [ "${{ steps.trivy.outcome }}" = "success" ]; then
+              echo "status=success" >> "$GITHUB_OUTPUT"
+            else
+              echo "status=failure" >> "$GITHUB_OUTPUT"
+            fi
+            echo "report-file=trivy-results.json" >> "$GITHUB_OUTPUT"
+          else
+            if [ "${{ steps.grype.outcome }}" = "success" ]; then
+              echo "status=success" >> "$GITHUB_OUTPUT"
+            else
+              echo "status=failure" >> "$GITHUB_OUTPUT"
+            fi
+            echo "report-file=./results.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Send email notification
+      - name: Send Email Notification
+        uses: ./notify-email
+        with:
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: ${{ secrets.SMTP_FROM }}
+          scan-type: ${{ inputs.scanner }}
+          scan-status: ${{ steps.status.outputs.status }}
+          image: ${{ inputs.image }}
+          report-file: ${{ steps.status.outputs.report-file }}
+          smtp-server: ${{ secrets.SMTP_SERVER }}
+          smtp-port: ${{ secrets.SMTP_PORT }}
+          smtp-username: ${{ secrets.SMTP_USERNAME }}
+          smtp-password: ${{ secrets.SMTP_PASSWORD }}
+
+      # Fail the job if scan found vulnerabilities
+      - name: Check scan result
+        if: ${{ steps.status.outputs.status == 'failure' }}
+        run: |
+          echo "Scan found vulnerabilities!"
+          exit 1
