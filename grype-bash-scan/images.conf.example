@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------
+# Image configuration for grype-bash scan scripts
+# Copy this file to images.conf and fill in your values.
+# DO NOT commit images.conf to version control.
+# ---------------------------------------------------------------
+
+# Container registry organization
+ORG="ghcr.io/your-org"
+
+# Organization display name (used in summary reports)
+ORG_NAME="your-org"
+
+# Application images
+APPLICATION_IMAGES=(
+    my-app
+    my-api
+    my-frontend
+)
+
+# Base images
+BASE_IMAGES=(
+    tomcat
+    node
+    jre-21
+)

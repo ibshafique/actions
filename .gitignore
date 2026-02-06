@@ -1,0 +1,9 @@
+# Claude Code local settings
+.claude/
+
+# Grype scan results and private image config
+grype-bash-scan/scan-results/
+grype-bash-scan/images.conf
+
+# OS files
+.DS_Store
